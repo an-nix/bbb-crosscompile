@@ -1,0 +1,28 @@
+# Ignore local env and build artifacts
+.env
+.env.*
+docker-compose.override.yml
+docker-compose.*.yml
+docker-build.log
+docker-make.log
+.docker/
+.docker-cache/
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local config
+config/.config
+
