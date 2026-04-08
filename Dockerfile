@@ -1,62 +1,98 @@
-# Multi-stage Docker image for PickupWinder build environment.
-# Stage 1 compiles the PRU toolchain and installs ARM cross-toolchain support.
-# Stage 2 contains the final build image with the compiled toolchains copied in.
+# =============================================================================
+# Multi-stage Docker image — PickupWinder cross-compile environment.
+#
+# Stage 1 (builder):  compiles the PRU toolchain (pru-unknown-elf-gcc) via
+#                     crosstool-ng, running as a non-root user so ct-ng is happy.
+# Stage 2 (runtime):  minimal Debian 12 image with PRU + ARM gnueabihf toolchains.
+#
+# Build:
+#   docker build \
+#     --build-arg BUILDER_UID=$(id -u) \
+#     --build-arg BUILDER_GID=$(id -g) \
+#     -t antnic/bbb-crosscompile:debian12 .
+# =============================================================================
 
+# -----------------------------------------------------------------------------
+# Stage 1 — build PRU toolchain via crosstool-ng
+# -----------------------------------------------------------------------------
 FROM antnic/crosstools-ng:debian12-1.28 AS builder
 
 ARG BUILDER_UID=1000
 ARG BUILDER_GID=1000
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TOOLCHAIN_DIR=/root/x-tools
-ENV PATH=${TOOLCHAIN_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Create a non-root builder user; ct-ng refuses to run as root.
 RUN groupadd -g "${BUILDER_GID}" builder \
     && useradd -m -u "${BUILDER_UID}" -g "${BUILDER_GID}" builder \
-    && mkdir -p /home/builder/toolchain-build /home/builder/x-tools /home/builder/toolchain-build\
+    && mkdir -p /home/builder/toolchain-build /home/builder/x-tools \
     && chown -R builder:builder /home/builder/toolchain-build /home/builder/x-tools
 
 WORKDIR /home/builder/toolchain-build
 
 COPY config /home/builder/toolchain-build/config
 
-# Build PRU toolchain if a custom config is provided, otherwise build default.
-RUN if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
-      runuser -u builder -- bash -lc 'cp /home/builder/toolchain-build/config/pru/.config . && ct-ng build'; \
-    else \
-      runuser -u builder -- bash -lc 'ct-ng pru || true && if [ -f .config ]; then ct-ng build; else echo "WARNING: PRU toolchain config not generated"; fi'; \
-    fi
+# Build the PRU toolchain.
+# ct-ng installs the result to /home/builder/x-tools/ (CT_PREFIX default for
+# the non-root user).  A custom .config must be provided in config/pru/.config.
+RUN chown -R builder:builder /home/builder/toolchain-build \
+    && if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
+         runuser -u builder -- bash -lc \
+           'cp /home/builder/toolchain-build/config/pru/.config . && ct-ng build'; \
+       else \
+         runuser -u builder -- bash -lc \
+           'ct-ng pru || true; \
+            [ -f .config ] && ct-ng build \
+            || echo "WARNING: no PRU toolchain config found — skipping toolchain build."; \
+            true'; \
+       fi
 
-# ARM toolchain build disabled for now (uncomment to re-enable).
-# RUN if [ -f /home/builder/toolchain-build/config/arm/.config ]; then \
-#       mkdir -p /home/builder/toolchain-build/arm && chown builder:builder /home/builder/toolchain-build/arm && cd /home/builder/toolchain-build/arm && \
-#       runuser -u builder -- bash -lc 'cp /home/builder/toolchain-build/config/arm/.config . && ct-ng build'; \
-#     else \
-#       echo 'No custom ARM toolchain config provided; ARM cross-toolchain will not be built.'; \
-#     fi
+# ARM toolchain — uncomment and provide config/arm/.config to build a custom
+# arm-linux-gnueabihf toolchain instead of relying on the Debian package:
+# RUN mkdir -p /home/builder/toolchain-build/arm \
+#     && chown builder:builder /home/builder/toolchain-build/arm \
+#     && cd /home/builder/toolchain-build/arm \
+#     && runuser -u builder -- bash -lc \
+#          'cp /home/builder/toolchain-build/config/arm/.config . && ct-ng build'
 
+# -----------------------------------------------------------------------------
+# Stage 2 — runtime image used to compile the PickupWinder project
+# -----------------------------------------------------------------------------
 FROM debian:12-slim AS runtime
 
+LABEL org.opencontainers.image.title="PickupWinder cross-compile environment" \
+      org.opencontainers.image.description="PRU (pru-unknown-elf) + ARM gnueabihf cross-compilers for BeagleBone Black" \
+      org.opencontainers.image.source="https://github.com/an-nix/bbb-crosscompile" \
+      org.opencontainers.image.licenses="MIT"
+
 ENV DEBIAN_FRONTEND=noninteractive
+
+# TOOLCHAIN_DIR is read by the project Makefiles to locate pru-unknown-elf-gcc.
 ENV TOOLCHAIN_DIR=/usr/local/x-tools
-ENV PATH=${TOOLCHAIN_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    g++ \
-  gcc-arm-linux-gnueabihf \
-  g++-arm-linux-gnueabihf \
-    make \
-    gawk \
-    python3 \
-    python3-pip \
-    device-tree-compiler \
-    file \
-  && rm -rf /var/lib/apt/lists/*
+        build-essential \
+        gcc \
+        g++ \
+        gcc-arm-linux-gnueabihf \
+        g++-arm-linux-gnueabihf \
+        make \
+        gawk \
+        python3 \
+        python3-pip \
+        device-tree-compiler \
+        file \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy the PRU toolchain compiled in the builder stage.
 COPY --from=builder /home/builder/x-tools /usr/local/x-tools
-COPY --from=builder /usr/local/bin/ct-ng /usr/local/bin/ct-ng
-COPY --from=builder /usr/local/share/crosstool-ng /usr/local/share/crosstool-ng
+
+# Expose PRU toolchain binaries in PATH via symlinks into /usr/local/bin so
+# that both interactive shells and non-login make invocations can find them.
+RUN find /usr/local/x-tools -maxdepth 4 -name 'pru-unknown-elf-*' -type f \
+    | xargs -I{} ln -sf {} /usr/local/bin/ 2>/dev/null; true
+
+ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 WORKDIR /workspace
 CMD ["bash"]
