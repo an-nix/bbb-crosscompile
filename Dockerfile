@@ -35,16 +35,27 @@ COPY config /home/builder/toolchain-build/config
 # Build the PRU toolchain.
 # ct-ng installs the result to /home/builder/x-tools/ (CT_PREFIX default for
 # the non-root user).  A custom .config must be provided in config/pru/.config.
+#
+# ct-ng build is extremely verbose (100k+ lines); output is redirected to a
+# log file to avoid hitting Docker's 2 MiB log cap.  On failure the last 100
+# lines are printed so the error is still visible.
 RUN chown -R builder:builder /home/builder/toolchain-build \
     && if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
          runuser -u builder -- bash -lc \
-           'cp /home/builder/toolchain-build/config/pru/.config . && ct-ng build'; \
+           'cp /home/builder/toolchain-build/config/pru/.config . \
+            && ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log > /dev/null \
+            || { echo "=== ct-ng build FAILED — last 100 lines ==="; \
+                 tail -100 /home/builder/ct-ng-build.log; exit 1; }'; \
        else \
          runuser -u builder -- bash -lc \
-           'ct-ng pru || true; \
-            [ -f .config ] && ct-ng build \
-            || echo "WARNING: no PRU toolchain config found — skipping toolchain build."; \
-            true'; \
+           'ct-ng pru 2>/dev/null || true; \
+            if [ -f .config ]; then \
+              ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log > /dev/null \
+              || { echo "=== ct-ng build FAILED — last 100 lines ==="; \
+                   tail -100 /home/builder/ct-ng-build.log; exit 1; }; \
+            else \
+              echo "WARNING: no PRU toolchain config found — skipping toolchain build."; \
+            fi'; \
        fi
 
 # ARM toolchain — uncomment and provide config/arm/.config to build a custom
