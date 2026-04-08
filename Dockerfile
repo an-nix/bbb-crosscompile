@@ -83,12 +83,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # TOOLCHAIN_DIR is read by the project Makefiles to locate pru-unknown-elf-gcc.
 ENV TOOLCHAIN_DIR=/usr/local/x-tools
 
-# Use HTTPS Debian mirrors + retries: avoids intermittent "invalid signature"
-# errors sometimes seen with transparent HTTP proxies/caches.
-RUN rm -rf /var/lib/apt/lists/* \
-  && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list \
-  && apt-get -o Acquire::Retries=5 -o Acquire::http::No-Cache=true -o Acquire::https::No-Cache=true update \
-  && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
         g++ \
