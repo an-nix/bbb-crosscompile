@@ -1,0 +1,14 @@
+=== Building PRU firmware ===
+=== Building daemon ===
+make -C src/pru OUT_DIR=/workspace/build/pru
+make -C src/linux/daemon OUT_DIR=/workspace/build/daemon
+=== Building DTBOs ===
+make[1]: Entering directory '/workspace/src/linux/daemon'
+make[1]: Entering directory '/workspace/src/pru'
+  src/dts/00-gpio.dts -> build/dtbo/00-GPIO-00A0.dtbo
+make[1]: Nothing to be done for 'all'.
+make[1]: Leaving directory '/workspace/src/pru'
+  src/dts/01-eqep.dts -> build/dtbo/01-EQEP-00A0.dtbo
+Makefile:26: *** No ARM cross-compiler found in PATH or /root/x-tools. Install arm-linux-gnueabihf toolchain or set DAEMON_CC..  Stop.
+make[1]: Leaving directory '/workspace/src/linux/daemon'
+make: *** [Makefile:45: daemon] Error 2
