@@ -36,21 +36,23 @@ COPY config /home/builder/toolchain-build/config
 # ct-ng installs the result to /home/builder/x-tools/ (CT_PREFIX default for
 # the non-root user).  A custom .config must be provided in config/pru/.config.
 #
-# ct-ng build is extremely verbose (100k+ lines); output is redirected to a
-# log file to avoid hitting Docker's 2 MiB log cap.  On failure the last 100
-# lines are printed so the error is still visible.
+# Output is streamed live to stdout (visible with --progress=plain) and also
+# written to /home/builder/ct-ng-build.log inside the builder stage.
+# On failure the last 100 lines are repeated so the error is clearly visible.
+#
+# ct-ng sample name on version 1.28: 'pru'  (not 'pru-unknown-elf')
 RUN chown -R builder:builder /home/builder/toolchain-build \
     && if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
          runuser -u builder -- bash -lc \
            'cp /home/builder/toolchain-build/config/pru/.config . \
-            && ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log > /dev/null \
+            && ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log \
             || { echo "=== ct-ng build FAILED — last 100 lines ==="; \
                  tail -100 /home/builder/ct-ng-build.log; exit 1; }'; \
        else \
          runuser -u builder -- bash -lc \
            'ct-ng pru 2>/dev/null || true; \
             if [ -f .config ]; then \
-              ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log > /dev/null \
+              ct-ng build 2>&1 | tee /home/builder/ct-ng-build.log \
               || { echo "=== ct-ng build FAILED — last 100 lines ==="; \
                    tail -100 /home/builder/ct-ng-build.log; exit 1; }; \
             else \
