@@ -87,10 +87,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy the PRU toolchain compiled in the builder stage.
 COPY --from=builder /home/builder/x-tools /usr/local/x-tools
 
-# Expose PRU toolchain binaries in PATH via symlinks into /usr/local/bin so
-# that both interactive shells and non-login make invocations can find them.
-RUN find /usr/local/x-tools -maxdepth 4 -name 'pru-unknown-elf-*' -type f \
-    | xargs -I{} ln -sf {} /usr/local/bin/ 2>/dev/null; true
+# Ensure all toolchain files are readable and executable for any user.
+# This is required when the container is run with --user <uid>:<gid>:
+# files copied via COPY --from are owned by root and may lack o+rx.
+# chmod a+rX: sets read for all, and execute only on files already executable
+# (i.e. binaries), not on plain data files.
+RUN chmod -R a+rX /usr/local/x-tools
+
+# Symlink PRU toolchain binaries into /usr/local/bin so they are found by
+# both interactive shells and non-login make invocations without modifying PATH.
+RUN find /usr/local/x-tools -maxdepth 5 -name 'pru-unknown-elf-*' -type f \
+    | xargs -r -I{} ln -sf {} /usr/local/bin/
 
 ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
