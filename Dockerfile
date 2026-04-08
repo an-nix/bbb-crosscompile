@@ -17,7 +17,7 @@ RUN groupadd -g "${BUILDER_GID}" builder \
 
 WORKDIR /home/builder/toolchain-build
 
-COPY docker/config /home/builder/toolchain-build/config
+COPY config /home/builder/toolchain-build/config
 
 # Build PRU toolchain if a custom config is provided, otherwise build default.
 RUN if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
@@ -37,7 +37,7 @@ RUN if [ -f /home/builder/toolchain-build/config/pru/.config ]; then \
 FROM debian:12-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TOOLCHAIN_DIR=/root/x-tools
+ENV TOOLCHAIN_DIR=/usr/local/x-tools
 ENV PATH=${TOOLCHAIN_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -54,7 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /home/builder/x-tools /root/x-tools
+COPY --from=builder /home/builder/x-tools /usr/local/x-tools
 COPY --from=builder /usr/local/bin/ct-ng /usr/local/bin/ct-ng
 COPY --from=builder /usr/local/share/crosstool-ng /usr/local/share/crosstool-ng
 
